@@ -57,7 +57,7 @@ describe Broadside::EcsDeploy do
     expect { deploy }.to_not raise_error
   end
 
-  context 'bootstrap' do
+  describe '#bootstrap' do
     it 'fails without task_definition_config' do
       expect { deploy.bootstrap }.to raise_error(//)
     end
@@ -76,7 +76,7 @@ describe Broadside::EcsDeploy do
     end
   end
 
-  context 'deploy' do
+  describe '#deploy' do
     it 'fails without an existing service' do
       expect { deploy.deploy }.to raise_error(/No service for #{family}!/)
     end

@@ -91,17 +91,5 @@ module Broadside
     def image_tag
       "#{config.base.docker_image}:#{@deploy_config.tag}"
     end
-
-    def gen_ssh_cmd(ip, options = { tty: false })
-      opts = @deploy_config.ssh || {}
-      cmd = 'ssh -o StrictHostKeyChecking=no'
-      cmd << ' -t -t' if options[:tty]
-      cmd << " -i #{opts[:keyfile]}" if opts[:keyfile]
-      if opts[:proxy]
-        cmd << " -o ProxyCommand=\"ssh #{opts[:proxy][:host]} nc #{ip} #{opts[:proxy][:port]}\""
-      end
-      cmd << " #{opts[:user]}@#{ip}"
-      cmd
-    end
   end
 end

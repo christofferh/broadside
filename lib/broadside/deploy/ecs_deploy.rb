@@ -26,7 +26,7 @@ module Broadside
           exception "No task definition for '#{family}'! Please bootstrap or manually configure the task definition."
         end
 
-        update_task_revision
+        EcsManager.update_task_revision(family, @deploy_config.task_definition_config)
 
         begin
           update_service
@@ -95,7 +95,7 @@ module Broadside
 
     def run
       super do
-        update_task_revision
+        EcsManager.update_task_revision(family, @deploy_config.task_definition_config)
 
         begin
           run_command(@deploy_config.command)
@@ -108,7 +108,7 @@ module Broadside
     # runs before deploy commands using the latest task definition
     def run_predeploy
       super do
-        update_task_revision
+        EcsManager.update_task_revision(family, @deploy_config.task_definition_config)
 
         begin
           @deploy_config.predeploy_commands.each { |command| run_command(command) }
@@ -126,7 +126,7 @@ module Broadside
           Rainbow(PP.pp(EcsManager.get_latest_task_definition(family), '')).blue,
           "\nPrivate ips of instances running containers:\n",
           Rainbow(ips.join(' ')).blue,
-          "\n\nssh command:\n#{Rainbow(gen_ssh_cmd(ips.first)).cyan}",
+          "\n\nssh command:\n#{Rainbow(gen_ssh_cmd(ips.first, @deploy_config.ssh)).cyan}",
           "\n---------------\n"
       end
     end
@@ -137,7 +137,7 @@ module Broadside
         debug "Tailing logs for running container at ip #{ip}..."
         search_pattern = Shellwords.shellescape(family)
         cmd = "docker logs -f --tail=#{@deploy_config.lines} `docker ps -n 1 --quiet --filter name=#{search_pattern}`"
-        tail_cmd = gen_ssh_cmd(ip) + " '#{cmd}'"
+        tail_cmd = gen_ssh_cmd(ip, @deploy_config.ssh) + " '#{cmd}'"
         exec tail_cmd
       end
     end
@@ -146,7 +146,7 @@ module Broadside
       super do
         ip = get_running_instance_ip
         debug "Establishing an SSH connection to ip #{ip}..."
-        exec gen_ssh_cmd(ip)
+        exec gen_ssh_cmd(ip, @deploy_config.ssh)
       end
     end
 
@@ -156,7 +156,7 @@ module Broadside
         debug "Running bash for running container at ip #{ip}..."
         search_pattern = Shellwords.shellescape(family)
         cmd = "docker exec -i -t `docker ps -n 1 --quiet --filter name=#{search_pattern}` bash"
-        bash_cmd = gen_ssh_cmd(ip, tty: true) + " '#{cmd}'"
+        bash_cmd = gen_ssh_cmd(ip, @deploy_config.ssh, tty: true) + " '#{cmd}'"
         exec bash_cmd
       end
     end
@@ -165,26 +165,6 @@ module Broadside
 
     def get_running_instance_ip
       EcsManager.get_running_instance_ips(config.ecs.cluster, family).fetch(@deploy_config.instance)
-    end
-
-    # Creates a new task revision using current directory's env vars, provided tag, and configured options.
-    # Currently can only handle a single container definition.
-    def update_task_revision
-      revision = EcsManager.get_latest_task_definition(family).except(
-        :requires_attributes,
-        :revision,
-        :status,
-        :task_definition_arn
-      )
-      updatable_container_definitions = revision[:container_definitions].select { |c| c[:name] == family }
-      exception "Can only update one container definition!" if updatable_container_definitions.size != 1
-
-      # Deep merge doesn't work well with arrays (e.g. :container_definitions), so build the container first.
-      updatable_container_definitions.first.merge!(container_definition)
-      revision.deep_merge!((@deploy_config.task_definition_config || {}).except(:container_definitions))
-
-      task_definition = EcsManager.ecs.register_task_definition(revision).task_definition
-      debug "Successfully created #{task_definition.task_definition_arn}"
     end
 
     # reloads the service using the latest task definition
@@ -251,11 +231,11 @@ module Broadside
       ip = EcsManager.get_running_instance_ips(config.ecs.cluster, family, task_arn).first
       debug "Found ip of container instance: #{ip}"
 
-      find_container_id_cmd = "#{gen_ssh_cmd(ip)} \"docker ps -aqf 'label=com.amazonaws.ecs.task-arn=#{task_arn}'\""
+      find_container_id_cmd = "#{gen_ssh_cmd(ip, @deploy_config.ssh)} \"docker ps -aqf 'label=com.amazonaws.ecs.task-arn=#{task_arn}'\""
       debug "Running command to find container id:\n#{find_container_id_cmd}"
       container_id = `#{find_container_id_cmd}`.strip
 
-      get_container_logs_cmd = "#{gen_ssh_cmd(ip)} \"docker logs #{container_id}\""
+      get_container_logs_cmd = "#{gen_ssh_cmd(ip, @deploy_config.ssh)} \"docker logs #{container_id}\""
       debug "Running command to get logs of container #{container_id}:\n#{get_container_logs_cmd}"
 
       logs = nil
@@ -266,12 +246,15 @@ module Broadside
     end
 
     def container_definition
-      configured_containers = (@deploy_config.task_definition_config || {})[:container_definitions]
-      if configured_containers && configured_containers.size > 1
-        raise ArgumentError, 'Creating > 1 container definition not supported yet'
+      configured_container = {}
+
+      if @deploy_config.task_definition_config
+        configured_containers = @deploy_config.task_definition_config[:container_definitions]
+        raise ArgumentError, 'Creating > 1 container definition not supported yet' if configured_containers.size > 1
+        configured_container = configured_containers.first
       end
 
-      (configured_containers.try(:first) || {}).merge(
+      configured_container.merge(
         name: family,
         command: @deploy_config.command,
         environment: @deploy_config.env_vars,

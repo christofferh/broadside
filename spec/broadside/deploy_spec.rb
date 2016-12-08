@@ -17,11 +17,11 @@ module Broadside
         target: nil
       }
     end
+    let(:d) { Deploy.new(valid_options) }
 
     describe '#deploy' do
       context 'with valid deploy configuration' do
         include_context 'deploy configuration'
-        let(:d) { Deploy.new(valid_options) }
 
         it 'verifies existence of a tag configuration' do
           expect(d.deploy_config).to receive(:verify).with(:tag)
@@ -33,7 +33,6 @@ module Broadside
     describe '#rollback' do
       context 'with valid deploy configuration' do
         include_context 'deploy configuration'
-        let(:d) { Deploy.new(valid_options) }
 
         it 'verifies existence of rollback configuration' do
           expect(d.deploy_config).to receive(:verify).with(:rollback)
@@ -45,7 +44,6 @@ module Broadside
     describe '#run' do
       context 'with valid deploy configuration' do
         include_context 'deploy configuration'
-        let(:d) { Deploy.new(valid_options) }
 
         it 'verifies existence of a tag, ssh, command configuration' do
           expect(d.deploy_config).to receive(:verify).with(:tag, :ssh, :command)
@@ -57,7 +55,6 @@ module Broadside
     describe '#run_predeploy' do
       context 'with valid deploy configuration' do
         include_context 'deploy configuration'
-        let(:d) { Deploy.new(valid_options) }
 
         it 'verifies existence of a tag and ssh configuration' do
           expect(d.deploy_config).to receive(:verify).with(:tag, :ssh)

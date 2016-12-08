@@ -105,6 +105,48 @@ module Broadside
         services.failures.empty? && services.services.any?
       end
 
+      # Creates a new task definition revision from the latest task definition and provided configurations.
+      def update_task_revision(family, task_definition_config)
+        latest_revision = get_latest_task_definition(family).except(
+          :requires_attributes,
+          :revision,
+          :status,
+          :task_definition_arn
+        )
+        revision_updates = {
+          container_definitions: [container_definition],
+          family: family
+        }
+        new_revision = task_revision_merge(latest_revision, revision_updates)
+
+        task_definition = EcsManager.ecs.register_task_definition(new_revision).task_definition
+        debug "Successfully created #{task_definition.task_definition_arn}"
+      end
+
+      def task_revision_merge(old, new)
+        old.deep_merge(new) do |key, old_val, new_val|
+          if key == :container_definitions
+            updatable_container_defs = old_val.select { |c| c[:name] == family }
+            unmanaged_container_defs = old_val - updatable_container_defs
+
+            if updatable_container_definitions.size < 1
+              exception "Could not merge task revisions because broadside could not find any container definitions with name '#{family}'. Ensure the primary container is named accordingly."
+            elsif updatable_container_definitions.size > 1
+              exception "Could not merge task revisions because more than one container definition was found with the name '#{family}'!"
+            end
+
+            new_container_defs = updatable_container_defs.first.merge(new_val.first) + unmanaged_container_defs
+            new_container_defs
+          elsif old_val.is_a?(Hash)
+            old_val.deep_merge(new_val)
+          else
+            new_val
+          end
+        end
+      end
+
+      #TODO:def update_service(family, )
+
       private
 
       def all_results(method, key, args = {})
