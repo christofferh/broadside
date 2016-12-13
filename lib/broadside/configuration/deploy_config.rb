@@ -96,7 +96,7 @@ module Broadside
         # TODO: what's up with predeploy_commands.  ||= []?
         @predeploy_commands = @targets[@target][:predeploy_commands] if @targets[@target][:predeploy_commands]
         @service_config = @targets[@target][:service_config]
-        @task_definition_config = @targets[@target][:task_definition_config]
+        @task_definition_config = @targets[@target][:task_definition_config] || {}
       end
 
       private

@@ -19,14 +19,14 @@ module Broadside
 
     def deploy
       super do
-        unless EcsManager.service_exists?(config.ecs.cluster, family)
-          exception "No service for #{family}! Please bootstrap or manually configure the service."
+        unless EcsManager.service_exists?(config.ecs.cluster, @family)
+          exception "No service for #{@family}! Please bootstrap or manually configure the service."
         end
-        unless EcsManager.get_latest_task_definition_arn(family)
-          exception "No task definition for '#{family}'! Please bootstrap or manually configure the task definition."
+        unless EcsManager.get_latest_task_definition_arn(@family)
+          exception "No task definition for '#{@family}'! Please bootstrap or manually configure the task definition."
         end
 
-        EcsManager.update_task_revision(family, @deploy_config.task_definition_config)
+        update_task_revision
 
         begin
           update_service
@@ -46,39 +46,39 @@ module Broadside
     end
 
     def bootstrap
-      if EcsManager.get_latest_task_definition_arn(family)
-        info("Task definition for #{family} already exists.")
+      if EcsManager.get_latest_task_definition_arn(@family)
+        info("Task definition for #{@family} already exists.")
       else
         unless @deploy_config.task_definition_config
-          raise ArgumentError, "No first task definition and no :task_definition_config in '#{family}' configuration"
+          raise ArgumentError, "No first task definition and no :task_definition_config in '#{@family}' configuration"
         end
 
-        info "Creating an initial task definition for '#{family}' from the config..."
+        info "Creating an initial task definition for '#{@family}' from the config..."
 
         EcsManager.ecs.register_task_definition(
           @deploy_config.task_definition_config.merge(
-            family: family,
+            family: @family,
             container_definitions: [DEFAULT_CONTAINER_DEFINITION.merge(container_definition)]
           )
         )
       end
 
-      if EcsManager.service_exists?(config.ecs.cluster, family)
-        info("Service for #{family} already exists.")
+      if EcsManager.service_exists?(config.ecs.cluster, @family)
+        info("Service for #{@family} already exists.")
       else
         unless @deploy_config.service_config
-          raise ArgumentError, "Service doesn't exist and no :service_config in '#{family}' configuration"
+          raise ArgumentError, "Service doesn't exist and no :service_config in '#{@family}' configuration"
         end
 
-        info "Service '#{family}' doesn't exist, creating..."
-        EcsManager.create_service(config.ecs.cluster, family, @deploy_config.service_config)
+        info "Service '#{@family}' doesn't exist, creating..."
+        EcsManager.create_service(config.ecs.cluster, @family, @deploy_config.service_config)
       end
     end
 
     def rollback(count = @deploy_config.rollback)
       super do
         begin
-          EcsManager.deregister_last_n_tasks_definitions(family, count)
+          EcsManager.deregister_last_n_tasks_definitions(@family, count)
           update_service
         rescue StandardError
           error 'Rollback failed to complete!'
@@ -95,12 +95,12 @@ module Broadside
 
     def run
       super do
-        EcsManager.update_task_revision(family, @deploy_config.task_definition_config)
+        update_task_revision
 
         begin
           run_command(@deploy_config.command)
         ensure
-          EcsManager.deregister_last_n_tasks_definitions(family, 1)
+          EcsManager.deregister_last_n_tasks_definitions(@family, 1)
         end
       end
     end
@@ -108,22 +108,22 @@ module Broadside
     # runs before deploy commands using the latest task definition
     def run_predeploy
       super do
-        EcsManager.update_task_revision(family, @deploy_config.task_definition_config)
+        update_task_revision
 
         begin
           @deploy_config.predeploy_commands.each { |command| run_command(command) }
         ensure
-          EcsManager.deregister_last_n_tasks_definitions(family, 1)
+          EcsManager.deregister_last_n_tasks_definitions(@family, 1)
         end
       end
     end
 
     def status
       super do
-        ips = EcsManager.get_running_instance_ips(config.ecs.cluster, family)
+        ips = EcsManager.get_running_instance_ips(config.ecs.cluster, @family)
         info "\n---------------",
           "\nDeployed task definition information:\n",
-          Rainbow(PP.pp(EcsManager.get_latest_task_definition(family), '')).blue,
+          Rainbow(PP.pp(EcsManager.get_latest_task_definition(@family), '')).blue,
           "\nPrivate ips of instances running containers:\n",
           Rainbow(ips.join(' ')).blue,
           "\n\nssh command:\n#{Rainbow(gen_ssh_cmd(ips.first, @deploy_config.ssh)).cyan}",
@@ -135,7 +135,7 @@ module Broadside
       super do
         ip = get_running_instance_ip
         debug "Tailing logs for running container at ip #{ip}..."
-        search_pattern = Shellwords.shellescape(family)
+        search_pattern = Shellwords.shellescape(@family)
         cmd = "docker logs -f --tail=#{@deploy_config.lines} `docker ps -n 1 --quiet --filter name=#{search_pattern}`"
         tail_cmd = gen_ssh_cmd(ip, @deploy_config.ssh) + " '#{cmd}'"
         exec tail_cmd
@@ -154,7 +154,7 @@ module Broadside
       super do
         ip = get_running_instance_ip
         debug "Running bash for running container at ip #{ip}..."
-        search_pattern = Shellwords.shellescape(family)
+        search_pattern = Shellwords.shellescape(@family)
         cmd = "docker exec -i -t `docker ps -n 1 --quiet --filter name=#{search_pattern}` bash"
         bash_cmd = gen_ssh_cmd(ip, @deploy_config.ssh, tty: true) + " '#{cmd}'"
         exec bash_cmd
@@ -164,18 +164,38 @@ module Broadside
     private
 
     def get_running_instance_ip
-      EcsManager.get_running_instance_ips(config.ecs.cluster, family).fetch(@deploy_config.instance)
+      EcsManager.get_running_instance_ips(config.ecs.cluster, @family).fetch(@deploy_config.instance)
+    end
+
+      # Creates a new task definition revision from the latest task definition and provided configurations.
+    def update_task_revision
+      latest_revision = EcsManager.get_latest_task_definition(@family).except(
+        :requires_attributes,
+        :revision,
+        :status,
+        :task_definition_arn
+      )
+
+      revision_updates = @deploy_config.task_definition_config.except(:container_definitions).merge!({
+        container_definitions: [container_definition],
+        family: @family
+      })
+
+      new_revision = EcsManager.task_revision_merge(latest_revision, revision_updates, @family)
+
+      task_definition = EcsManager.ecs.register_task_definition(new_revision).task_definition
+      debug "Successfully created #{task_definition.task_definition_arn}"
     end
 
     # reloads the service using the latest task definition
     def update_service
-      task_definition_arn = EcsManager.get_latest_task_definition_arn(family)
-      debug "Updating #{family} with scale=#{@deploy_config.scale} using task #{task_definition_arn}..."
+      task_definition_arn = EcsManager.get_latest_task_definition_arn(@family)
+      debug "Updating #{@family} with scale=#{@deploy_config.scale} using task #{task_definition_arn}..."
 
       update_service_response = EcsManager.ecs.update_service({
         cluster: config.ecs.cluster,
         desired_count: @deploy_config.scale,
-        service: family,
+        service: @family,
         task_definition: task_definition_arn
       }.deep_merge(@deploy_config.service_config || {}))
 
@@ -183,7 +203,7 @@ module Broadside
         exception('Failed to update service during deploy.', update_service_response.pretty_inspect)
       end
 
-      EcsManager.ecs.wait_until(:services_stable, { cluster: config.ecs.cluster, services: [family] }) do |w|
+      EcsManager.ecs.wait_until(:services_stable, { cluster: config.ecs.cluster, services: [@family] }) do |w|
         w.max_attempts = @deploy_config.timeout ? @deploy_config.timeout / config.ecs.poll_frequency : nil
         w.delay = config.ecs.poll_frequency
         seen_event = nil
@@ -201,7 +221,7 @@ module Broadside
 
     def run_command(command)
       command_name = command.join(' ')
-      run_task_response = EcsManager.run_task(config.ecs.cluster, family, command)
+      run_task_response = EcsManager.run_task(config.ecs.cluster, @family, command)
 
       unless run_task_response.successful? && run_task_response.tasks.try(:[], 0)
         exception("Failed to run #{command_name} task.", run_task_response.pretty_inspect)
@@ -220,7 +240,7 @@ module Broadside
 
       info "#{command_name} task container logs:\n#{get_container_logs(task_arn)}"
 
-      if (code = EcsManager.get_task_exit_code(config.ecs.cluster, task_arn, family)) == 0
+      if (code = EcsManager.get_task_exit_code(config.ecs.cluster, task_arn, @family)) == 0
         debug "#{command_name} task #{task_arn} exited with status code 0"
       else
         exception "#{command_name} task #{task_arn} exited with a non-zero status code #{code}!"
@@ -228,7 +248,7 @@ module Broadside
     end
 
     def get_container_logs(task_arn)
-      ip = EcsManager.get_running_instance_ips(config.ecs.cluster, family, task_arn).first
+      ip = EcsManager.get_running_instance_ips(config.ecs.cluster, @family, task_arn).first
       debug "Found ip of container instance: #{ip}"
 
       find_container_id_cmd = "#{gen_ssh_cmd(ip, @deploy_config.ssh)} \"docker ps -aqf 'label=com.amazonaws.ecs.task-arn=#{task_arn}'\""
@@ -248,17 +268,17 @@ module Broadside
     def container_definition
       configured_container = {}
 
-      if @deploy_config.task_definition_config
+      if @deploy_config.task_definition_config[:container_definitions]
         configured_containers = @deploy_config.task_definition_config[:container_definitions]
         raise ArgumentError, 'Creating > 1 container definition not supported yet' if configured_containers.size > 1
         configured_container = configured_containers.first
       end
 
       configured_container.merge(
-        name: family,
+        name: @family,
         command: @deploy_config.command,
         environment: @deploy_config.env_vars,
-        image: image_tag
+        image: @image_tag
       )
     end
   end

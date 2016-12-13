@@ -17,25 +17,43 @@ describe Broadside::EcsManager do
 
   before(:each) { Broadside::EcsManager.instance_variable_set(:@ecs_client, ecs_stub) }
 
-  it 'create_service' do
-    expect { described_class.create_service(cluster, service_name) }.to_not raise_error
+  describe '#create_service' do
+    it 'creates an ECS service from the given configs' do
+      expect { described_class.create_service(cluster, service_name) }.to_not raise_error
+    end
   end
 
-  it 'list_services' do
-    expect { described_class.list_services(cluster) }.to_not raise_error
+  describe '#list_services' do
+    it 'returns an array of services belonging to the provided cluster' do
+      expect { described_class.list_services(cluster) }.to_not raise_error
+    end
   end
 
-  it 'get_task_arns' do
-    expect { described_class.get_task_arns(cluster, name) }.to_not raise_error
+  describe '#get_task_arns' do
+    it 'returns an array of task arns belonging to a provided cluster with the provided name' do
+      expect { described_class.get_task_arns(cluster, name) }.to_not raise_error
+    end
   end
 
-  it 'get_task_definition_arns' do
-    expect { described_class.get_task_definition_arns(name) }.to_not raise_error
-    expect { described_class.get_latest_task_definition_arn(name) }.to_not raise_error
+  describe '#get_task_definition_arns' do
+    it 'returns an array of task definition arns with the provided name' do
+      expect { described_class.get_task_definition_arns(name) }.to_not raise_error
+      expect { described_class.get_latest_task_definition_arn(name) }.to_not raise_error
+    end
   end
 
-  it 'get_latest_task_definition' do
-    expect(described_class.get_latest_task_definition(name)).to be_nil
+  describe '#get_latest_task_definition' do
+    it 'returns the most recent valid task definition' do
+      expect(described_class.get_latest_task_definition(name)).to be_nil
+    end
+  end
+
+  describe '#task_revision_merge' do
+    it 'merges two task definition revisions' do
+
+    end
+
+    it 'merges/injects the configurations of a custom container definition specified in the new revision with the old revision'
   end
 
   context 'all_results' do

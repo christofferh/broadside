@@ -8,13 +8,6 @@ module Broadside
     class << self
       include Utils
 
-      def ecs
-        @ecs_client ||= Aws::ECS::Client.new(
-          region: Broadside.config.aws.region,
-          credentials: Broadside.config.aws.credentials
-        )
-      end
-
       def create_service(cluster, name, options = {})
         ecs.create_service(
           {
@@ -100,42 +93,23 @@ module Broadside
         )
       end
 
-      def service_exists?(cluster, family)
-        services = ecs.describe_services(cluster: cluster, services: [family])
-        services.failures.empty? && services.services.any?
-      end
-
-      # Creates a new task definition revision from the latest task definition and provided configurations.
-      def update_task_revision(family, task_definition_config)
-        latest_revision = get_latest_task_definition(family).except(
-          :requires_attributes,
-          :revision,
-          :status,
-          :task_definition_arn
-        )
-        revision_updates = {
-          container_definitions: [container_definition],
-          family: family
-        }
-        new_revision = task_revision_merge(latest_revision, revision_updates)
-
-        task_definition = EcsManager.ecs.register_task_definition(new_revision).task_definition
-        debug "Successfully created #{task_definition.task_definition_arn}"
-      end
-
-      def task_revision_merge(old, new)
+      # Merges two task definition revisions
+      # Provide a container name for specially merging a container definition
+      def task_revision_merge(old, new, custom_container_name)
         old.deep_merge(new) do |key, old_val, new_val|
           if key == :container_definitions
-            updatable_container_defs = old_val.select { |c| c[:name] == family }
+            updatable_container_defs = old_val.select { |c| c[:name] == custom_container_name }
             unmanaged_container_defs = old_val - updatable_container_defs
 
-            if updatable_container_definitions.size < 1
-              exception "Could not merge task revisions because broadside could not find any container definitions with name '#{family}'. Ensure the primary container is named accordingly."
-            elsif updatable_container_definitions.size > 1
-              exception "Could not merge task revisions because more than one container definition was found with the name '#{family}'!"
+            if updatable_container_defs.size < 1
+              exception "Could not merge task revisions because broadside could not find any container definitions with name '#{custom_container_name}'. Ensure the primary container is named accordingly."
+            elsif updatable_container_defs.size > 1
+              exception "Could not merge task revisions because more than one container definition was found with the name '#{custom_container_name}'!"
             end
 
-            new_container_defs = updatable_container_defs.first.merge(new_val.first) + unmanaged_container_defs
+            # merge the container definition specified in the new task revision with the old
+            custom_container_def = updatable_container_defs.first.deep_merge(new_val.first)
+            new_container_defs = unmanaged_container_defs.push(custom_container_def)
             new_container_defs
           elsif old_val.is_a?(Hash)
             old_val.deep_merge(new_val)
@@ -145,9 +119,10 @@ module Broadside
         end
       end
 
-      #TODO:def update_service(family, )
-
-      private
+      def service_exists?(cluster, family)
+        services = ecs.describe_services(cluster: cluster, services: [family])
+        services.failures.empty? && services.services.any?
+      end
 
       def all_results(method, key, args = {})
         page = ecs.public_send(method, args)
@@ -165,6 +140,13 @@ module Broadside
         @ec2_client ||= Aws::EC2::Client.new(
           region: config.aws.region,
           credentials: config.aws.credentials
+        )
+      end
+
+      def ecs
+        @ecs_client ||= Aws::ECS::Client.new(
+          region: Broadside.config.aws.region,
+          credentials: Broadside.config.aws.credentials
         )
       end
     end

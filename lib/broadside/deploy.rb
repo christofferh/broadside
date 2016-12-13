@@ -2,7 +2,7 @@ module Broadside
   class Deploy
     include Utils
 
-    attr_accessor :deploy_config
+    attr_accessor :deploy_config, :family, :image_tag
 
     def initialize(opts)
       @deploy_config = Broadside.config.deploy.dup
@@ -16,6 +16,9 @@ module Broadside
       @deploy_config.instance = opts[:instance] || @deploy_config.instance
       @deploy_config.command = opts[:command]   || @deploy_config.command
       @deploy_config.lines = opts[:lines]       || @deploy_config.lines
+
+      @family = "#{config.base.application}_#{@deploy_config.target}"
+      @image_tag = "#{config.base.docker_image}:#{@deploy_config.tag}"
     end
 
     def short
@@ -29,40 +32,40 @@ module Broadside
 
     def deploy
       @deploy_config.verify(:tag)
-      info "Deploying #{image_tag} to #{family}..."
+      info "Deploying #{@image_tag} to #{@family}..."
       yield
       info 'Deployment complete.'
     end
 
     def rollback(count = @deploy_config.rollback)
       @deploy_config.verify(:rollback)
-      info "Rolling back #{@deploy_config.rollback} release for #{family}..."
+      info "Rolling back #{@deploy_config.rollback} release for #{@family}..."
       yield
       info 'Rollback complete.'
     end
 
     def scale
-      info "Rescaling #{family} with scale=#{@deploy_config.scale}"
+      info "Rescaling #{@family} with scale=#{@deploy_config.scale}"
       yield
       info 'Rescaling complete.'
     end
 
     def run
       @deploy_config.verify(:tag, :ssh, :command)
-      info "Running command [#{@deploy_config.command}] for #{family}..."
+      info "Running command [#{@deploy_config.command}] for #{@family}..."
       yield
       info 'Complete.'
     end
 
     def run_predeploy
       @deploy_config.verify(:tag, :ssh)
-      info "Running predeploy commands for #{family}..."
+      info "Running predeploy commands for #{@family}..."
       yield
       info 'Predeploy complete.'
     end
 
     def status
-      info "Getting status information about #{family}"
+      info "Getting status information about #{@family}"
       yield
       info 'Complete.'
     end
@@ -80,16 +83,6 @@ module Broadside
     def bash
       @deploy_config.verify(:instance)
       yield
-    end
-
-    protected
-
-    def family
-      "#{config.base.application}_#{@deploy_config.target}"
-    end
-
-    def image_tag
-      "#{config.base.docker_image}:#{@deploy_config.tag}"
     end
   end
 end
