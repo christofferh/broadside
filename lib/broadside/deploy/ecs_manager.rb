@@ -8,14 +8,14 @@ module Broadside
     class << self
       include Utils
 
-      def create_service(cluster, name, options = {})
+      def create_service(cluster, name, opts = {})
         ecs.create_service(
           {
             cluster: cluster,
             desired_count: DEFAULT_DESIRED_COUNT,
             service_name: name,
             task_definition: name
-          }.deep_merge(options)
+          }.deep_merge(opts)
         )
       end
 
@@ -111,8 +111,6 @@ module Broadside
             custom_container_def = updatable_container_defs.first.deep_merge(new_val.first)
             new_container_defs = unmanaged_container_defs.push(custom_container_def)
             new_container_defs
-          elsif old_val.is_a?(Hash)
-            old_val.deep_merge(new_val)
           else
             new_val
           end

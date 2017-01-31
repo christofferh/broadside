@@ -21,6 +21,10 @@ describe Broadside::EcsManager do
     it 'creates an ECS service from the given configs' do
       expect { described_class.create_service(cluster, service_name) }.to_not raise_error
     end
+
+    it 'supports creating an ECS service with an ALB' do
+
+    end
   end
 
   describe '#list_services' do
@@ -49,11 +53,57 @@ describe Broadside::EcsManager do
   end
 
   describe '#task_revision_merge' do
+    let(:app_container_def) do
+      {
+        name: 'app_testing_web',
+        image: 'test-image',
+        cpu: 99,
+        memory: 99,
+        environment: [{
+            name: 'TESTKEY',
+            value: 'TESTVAL'
+        }]
+      }
+    end
+    let(:old_task_rev) do
+      {
+        family: 'test-family',
+        container_definitions: [
+          app_container_def,
+          {
+            name: 'some_other_name',
+            image: 'some_other_image'
+          }
+        ],
+        volumes: [{
+          name: 'test-volume'
+        }]
+      }
+    end
+    let(:new_task_rev) do
+      {
+        family: 'test-family',
+        container_definitions: [
+          {
+            name: 'app_testing_web',
+            image: 'test-image-new',
+            cpu: 100,
+            memory: 100,
+            environment: [{
+                name: 'NEWKEY',
+                value: 'NEWVAL'
+            }]
+          },
+        ]
+      }
+    end
     it 'merges two task definition revisions' do
 
     end
 
-    it 'merges/injects the configurations of a custom container definition specified in the new revision with the old revision'
+    it 'merges/injects the configurations of a custom container definition specified in the new revision with the old revision' do
+
+    end
   end
 
   context 'all_results' do
